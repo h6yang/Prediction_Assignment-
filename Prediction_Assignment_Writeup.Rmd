@@ -1,0 +1,145 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Hai Yang"
+date: "December 29, 2017"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This report will use model predict the manner in which a person lifted barbells using accelerometer data from individuals working out
+
+##Data
+
+First the data will be loaded.
+
+```{r}
+#Load data and convert blanks, divide by 0, into NA
+train = read.csv('pml-training.csv', na.strings = c("", "NA", '#DIV/0!'))
+test = read.csv('pml-testing.csv', na.strings = c("", "NA",'#DIV/0!'))
+```
+
+###Preprocessing
+
+The data will first need to be cleaned up. The variables containing entries, names, as well as time and trials are removed.
+
+```{r}
+#Remove Descriptive variables
+train = train[,-1:-7]
+test = test[,-1:-7]
+
+#Remove all columns but the actual gyros data with > 0.5 NAs(remove the min/max features already in data)
+train = train[, colSums(is.na(train)) < nrow(train) * 0.5]
+test$classe = 'dummy'
+test = test[,names(train)]
+test$classe = NULL
+```
+
+Before a model can be trained and tested, the data from train is split up in a 60/40 ratio for model training and validation using the caret package.
+
+```{r, echo=FALSE}
+library(caret)
+
+#Set seed for consistent partitioning
+set.seed(100)
+
+part = createDataPartition(train$classe, p = 0.6, list = FALSE)
+trainset = train[part,]
+testset = train[-part,]
+```
+
+###Exploratory Analysis
+
+The goal of the model is to be able to predict which of the classes that a person's method of lifting barbells correspond to. As can be seen in the table below, there are five classes with the majority of methodology falling under category A.
+
+```{r}
+table(train$classe)
+```
+
+```{r}
+avg_values = aggregate(. ~ classe,train,mean)
+# print(avg_values)
+```
+
+In addition, in the data frame above, the averages per manner of barbell lifting is shown and shows some distinct differences in certain accelerometer data. 
+
+## Model Training and Validation
+
+Two models will be setup to find which is more accurate in the actual test set. Both a random forest model and cart model will be used due to their specialities in multi-class classification problems.
+
+### Random Forest
+
+A random forest model is setup using every variable as a predictor for classe.
+
+```{r}
+#Using a random forest model for classification
+library(randomForest)
+rfModel = randomForest(classe ~ .,trainset)
+
+#Test set accuracy
+predTest = predict(rfModel, newdata = testset)
+print(confusionMatrix(predTest, testset$classe))
+```
+
+As can be seen from the confusion matrix, the random forest model has a accuracy of 0.9943 from the predictions using the testset data, which is very accurate. There is still a chance of overfitting which may be seen with the actual new data.
+
+###CART
+
+A CART model is setup using every variable as a predictor for classe. The cp to help with making the model is determined using cross validation to find the optimal accruacy.
+
+```{R}
+# Define cross-validation experiment
+numFolds = trainControl( method = "cv", number = 10 )
+cpGrid = expand.grid( .cp = seq(0.001,0.05,0.005)) 
+
+# Perform the cross validation which shows .001 seemed to have lowest r^2
+train(classe ~ ., data = trainset, method = "rpart", trControl = numFolds, tuneGrid = cpGrid )
+
+#CART regression model using all of the variables
+trainCART = rpart(classe ~ ., trainset, method="class",cp=.001)
+
+#Predictions on our test set and accuracy
+predCART = predict(trainCART, newdata=testset, type="class")
+print(confusionMatrix(predCART, testset$classe))
+```
+
+As can be seen in the confusion model above, the CART model is 0.9047 accurate which is lower than the random forest however, it may be underfitting this data set and may perform better in the actual test set.
+
+## Prediction
+
+Both of the random forest and cart models will be used to test the predictions.
+
+```{R}
+#Random Forest
+rfTrain = randomForest(classe ~ .,train)
+predRF = predict(rfTrain, newdata = test)
+predRF
+```
+
+The random forest model predicts accurately all 20 cases of the manner of activity.
+
+```{R}
+#CART
+# Perform the cross validation which shows .001 seemed to have lowest r^2
+train(classe ~ ., data = train, method = "rpart", trControl = numFolds, tuneGrid = cpGrid )
+
+#CART regression model using all of the variables
+CARTmodel = rpart(classe ~ ., train, method="class",cp=.001)
+
+#Predictions on our test set and accuracy
+predCART = predict(CARTmodel, newdata=test, type="class")
+predCART
+```
+
+The CART model predicts accurately 18/20 cases of manners of activity recorded.
+
+##Summary
+
+The random forest model in this case more accurate in determining the manner of lifting dumbells that the participants did. The CART model did not predict as well as the random forest but may perform better in a different testing set. 
